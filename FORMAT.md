@@ -56,9 +56,35 @@ The clip's ACMP bitstream is `[offset+30, offset+size)`. Clips are contiguous: o
 **Clip 1 is special:** its mini-header *is* the container header — the `"Interplay ACMP Data"` tag
 at file offset 16 serves both. So clip 1's payload begins at byte 46.
 
-**The `rate/flags` field is not fully understood.** In `COMPUTER.VCC` it is `0x0200` on 119 clips
-and `0x8200` on 117. 22050 Hz is correct for the clips that have been checked by ear; whether the
-high bit selects a different rate is unverified. If a clip sounds wrong-pitched, look here first.
+**The `rate/flags` field does not encode the sample rate. Every clip is 22050 Hz.**
+
+This was settled empirically on `FED.VCC` (1,489 clips), which carries far more flag values than
+`COMPUTER.VCC`. The same clips were run through speech recognition at 22050 and at 11025 Hz: at
+22050 they yield clean, coherent dialogue; at 11025, gibberish. Clips with the common value
+`0x0200` were included as controls and behaved identically, so the test could have come out the
+other way — it is not merely "22050 happened to work". All 93 unusual-flag clips in `FED.VCC`
+transcribe to non-empty speech at 22050.
+
+What the field *does* mean is unknown. Observed distribution — the low byte is always `0x00`:
+
+| container | clips | `0x0200` | `0x8200` | other values |
+|---|---|---|---|---|
+| `COMPUTER.VCC` | 245 | 119 | 117 | 9 clips, 9 distinct values |
+| `FED.VCC` | 1,489 | 723 | 673 | 93 clips, 70 distinct values |
+
+Two dominant values that differ only in bit 15, plus a long tail of near-singletons, is not the
+shape of a rate or format selector — those cluster on a few values. A decoder can ignore this
+field.
+
+**The field does correlate with one thing: a trailing silent block.** On 144 of `FED.VCC`'s 1,489
+clips, decoding to the end of the payload yields exactly **one more block than the header's block
+count** — never more, never fewer. That extra block is 256 samples of exact silence (`0x80`). It
+occurs on **0 of 723** `0x0200` clips, **16%** of `0x8200` clips and **38%** of the rest. So the
+field appears to relate to how a clip was *terminated*, not how it is *played*.
+
+For decoders: reading until the payload is exhausted (as `acmp` does) and trusting the header
+count both produce correct audio; the difference is 11.6 ms of silence. Round-trip verification
+covers the extra block, so `--verify` block totals exceed the header sum by that amount.
 
 ---
 

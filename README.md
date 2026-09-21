@@ -40,11 +40,18 @@ The decoder is not judged by whether its output sounds right. Every block is che
 the original encoder's bit packer, and require the emitted bytes to equal the file bytes exactly.
 `--verify` runs this over a whole container.
 
-On `COMPUTER.VCC` (the ship's computer voice, 245 clips, 35 MB):
+Results on the *Judgment Rites* containers decoded so far:
 
 ```
-clips: 245   blocks: 750,000+   byte-exact: all
+COMPUTER.VCC   ship's computer voice   245 clips    325,290 blocks   byte-exact: all
+FED.VCC        episode 1 dialogue    1,489 clips    526,631 blocks   byte-exact: all
 ```
+
+(Block counts are from the clip headers. `--verify` reports slightly more for some containers
+— see the note on trailing blocks in FORMAT.md.)
+
+`FED.VCC` is worth noting: it was decoded with no changes to the code, after the decoder had been
+built and tested only against `COMPUTER.VCC`.
 
 The implementation was additionally differentially tested against the **original encoder**.
 `MAKEVCC.EXE` — shipped on the game CD — is 32-bit flat x86 inside a DOS/4GW LE image, and can be
@@ -103,9 +110,9 @@ python verify/test_decoder.py --exe /path/to/MAKEVCC.EXE
 - Decoding is **exact** where `att == 0` and **exact to the encoder's own reconstruction**
   otherwise — ACMP is lossy for `att > 0` by design, so the original samples are not recoverable
   even in principle.
-- The per-clip `rate/flags` field is not fully understood (`0x0200` on 119 clips of `COMPUTER.VCC`,
-  `0x8200` on 117). 22050 Hz is correct for the clips checked; if one sounds wrong-pitched, that
-  field is the first suspect.
+- Every clip decodes at **22050 Hz**. The per-clip `rate/flags` field turned out *not* to be a
+  sample rate — tested by speech recognition at both candidate rates, with controls (FORMAT.md,
+  container section). Its actual meaning is unknown, and decoding does not depend on it.
 - Only `.VCC` is implemented. Interplay's `.SND` banks (e.g. *Birth of the Federation*) appear to
   be the same codec family in a different container and are untested here.
 
