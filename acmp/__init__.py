@@ -639,6 +639,31 @@ def clips(path):
     return _clips_impl(path)[1]
 
 
+def output_names(clip_list):
+    """One unique file stem per clip, in the same order as `clip_list`.
+
+    Clip ids are not guaranteed unique within a container (NOMAN.VCC holds two '~RPLAN'), so
+    naming files by id alone lets a later clip overwrite an earlier one. The first occurrence
+    keeps its bare id; repeats become 'ID#2', 'ID#3', ... ('#' appears in no known clip id).
+    """
+    taken = {c[0] for c in clip_list}
+    seen = {}
+    out = []
+    for c in clip_list:
+        name = c[0]
+        seen[name] = seen.get(name, 0) + 1
+        if seen[name] == 1:
+            out.append(name)
+            continue
+        k = seen[name]
+        while "%s#%d" % (name, k) in taken:
+            k += 1
+        stem = "%s#%d" % (name, k)
+        taken.add(stem)
+        out.append(stem)
+    return out
+
+
 def payload(data, clip):
     """The raw ACMP bitstream of one clip: everything after its 30-byte mini-header."""
     off, size = clip[1], clip[2]

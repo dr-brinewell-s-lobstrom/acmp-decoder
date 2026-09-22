@@ -34,16 +34,18 @@ def main():
     a = ap.parse_args()
 
     data = open(a.vcc, "rb").read()
-    cl = acmp.clips(a.vcc)
+    allc = acmp.clips(a.vcc)
+    cl = list(zip(allc, acmp.output_names(allc)))
     if a.clip:
-        cl = [c for c in cl if c[0] == a.clip]
+        cl = [(c, stem) for c, stem in cl if c[0] == a.clip]
         if not cl:
             sys.exit("no clip named %r" % a.clip)
 
     if a.list:
         print("%-6s %-10s %-10s %-7s %s" % ("clip", "offset", "bytes", "blocks", "rate flag"))
-        for name, off, size, c4, rate in cl:
-            print("%-6s %-10d %-10d %-7d 0x%04x" % (name, off, size, c4, rate))
+        for (name, off, size, c4, rate), stem in cl:
+            extra = "   (duplicate id; written as %s.wav)" % stem if stem != name else ""
+            print("%-6s %-10d %-10d %-7d 0x%04x%s" % (name, off, size, c4, rate, extra))
         return 0
 
     if not a.verify:
@@ -52,7 +54,7 @@ def main():
     total_blocks = total_exact = 0
     total_secs = 0.0
     failed = []
-    for name, off, size, c4, rate in cl:
+    for (name, off, size, c4, rate), stem in cl:
         pay = acmp.payload(data, (name, off, size, c4, rate))
         pos = nblk = nok = 0
         while pos < len(pay):
@@ -83,7 +85,7 @@ def main():
         if not samples:
             print("%-6s no audio" % name)
             continue
-        path = os.path.join(a.out, "%s.wav" % name)
+        path = os.path.join(a.out, "%s.wav" % stem)
         acmp.write_wav(path, samples, a.rate)
         secs = len(samples) / float(a.rate)
         total_secs += secs

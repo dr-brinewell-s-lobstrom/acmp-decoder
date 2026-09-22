@@ -39,6 +39,11 @@ EOF-16N 16N   footer: N records
 The offset is absolute. Do **not** add the header length to it — a mistake that costs a lot of
 time, because a wrong base still produces plausible-looking block headers.
 
+**Clip names are not unique within a container.** `NOMAN.VCC` holds two different clips both
+named `~RPLAN` (49 and 99 blocks). Anything that keys files or maps on the name alone will
+silently lose one. `vcc2wav.py` writes the first as `~RPLAN.wav` and the repeat as
+`~RPLAN#2.wav` (`acmp.output_names`).
+
 **Clip mini-header (30 bytes, at `offset`):**
 
 ```
@@ -71,16 +76,27 @@ What the field *does* mean is unknown. Observed distribution — the low byte is
 |---|---|---|---|---|
 | `COMPUTER.VCC` | 245 | 119 | 117 | 9 clips, 9 distinct values |
 | `FED.VCC` | 1,489 | 723 | 673 | 93 clips, 70 distinct values |
+| `NOMAN.VCC` | 2,616 | 1,223 | 1,216 | 177 clips, 75 distinct values |
+| `SCOTTY.VCC` | 797 | 315 | 347 | 135 clips, 77 distinct values |
+| `MADNESS.VCC` | 1,554 | 713 | 714 | 127 clips, 60 distinct values |
 
 Two dominant values that differ only in bit 15, plus a long tail of near-singletons, is not the
 shape of a rate or format selector — those cluster on a few values. A decoder can ignore this
 field.
 
-**The field does correlate with one thing: a trailing silent block.** On 144 of `FED.VCC`'s 1,489
-clips, decoding to the end of the payload yields exactly **one more block than the header's block
-count** — never more, never fewer. That extra block is 256 samples of exact silence (`0x80`). It
-occurs on **0 of 723** `0x0200` clips, **16%** of `0x8200` clips and **38%** of the rest. So the
-field appears to relate to how a clip was *terminated*, not how it is *played*.
+**The field does correlate with one thing: a trailing silent block.** On some clips, decoding to
+the end of the payload yields exactly **one more block than the header's block count** — never
+more, never fewer. That extra block is 256 samples of exact silence (`0x80`). It never occurs on
+`0x0200` clips, in any container checked:
+
+| container | `0x0200` | `0x8200` | other values |
+|---|---|---|---|
+| `FED.VCC` | 0 / 723 | 109 / 673 (16%) | 35 / 93 (38%) |
+| `NOMAN.VCC` | 0 / 1,223 | 225 / 1,216 (19%) | 83 / 177 (47%) |
+| `SCOTTY.VCC` | 0 / 315 | 70 / 347 (20%) | 87 / 135 (64%) |
+| `MADNESS.VCC` | 0 / 713 | 169 / 714 (24%) | 67 / 127 (53%) |
+
+So the field appears to relate to how a clip was *terminated*, not how it is *played*.
 
 For decoders: reading until the payload is exhausted (as `acmp` does) and trusting the header
 count both produce correct audio; the difference is 11.6 ms of silence. Round-trip verification

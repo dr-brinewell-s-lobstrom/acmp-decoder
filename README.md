@@ -45,13 +45,16 @@ Results on the *Judgment Rites* containers decoded so far:
 ```
 COMPUTER.VCC   ship's computer voice   245 clips    325,290 blocks   byte-exact: all
 FED.VCC        episode 1 dialogue    1,489 clips    526,631 blocks   byte-exact: all
+NOMAN.VCC      episode 3 dialogue    2,616 clips    942,639 blocks   byte-exact: all
+SCOTTY.VCC     episode 6 dialogue      797 clips    318,997 blocks   byte-exact: all
+MADNESS.VCC    episode 7 dialogue    1,554 clips    976,920 blocks   byte-exact: all
 ```
 
 (Block counts are from the clip headers. `--verify` reports slightly more for some containers
 — see the note on trailing blocks in FORMAT.md.)
 
-`FED.VCC` is worth noting: it was decoded with no changes to the code, after the decoder had been
-built and tested only against `COMPUTER.VCC`.
+`FED.VCC`, `NOMAN.VCC`, `SCOTTY.VCC` and `MADNESS.VCC` are worth noting: they were decoded with no changes to the code,
+after the decoder had been built and tested only against `COMPUTER.VCC`.
 
 The implementation was additionally differentially tested against the **original encoder**.
 `MAKEVCC.EXE` — shipped on the game CD — is 32-bit flat x86 inside a DOS/4GW LE image, and can be
