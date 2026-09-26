@@ -11,6 +11,7 @@ verified byte-exactly against it. See the project README for what "verified" mea
 Public API
 ----------
     clips(path)                  -> [(name, offset, size, block_count, rate_flag), ...]
+    header(data, clip)           -> (kind, rate, samples)   -- the authoritative header fields
     decode_block(payload, pos)   -> (samples, next_pos, mode, att, quiet)
     encode_block(hdr, samples, mode, att) -> bytes   (the packer mirror, for verification)
     decode_clip(payload)         -> [samples]        (chains every block)
@@ -635,6 +636,10 @@ def clips(path):
 
     Returns [(name, offset, size, block_count, rate_flag), ...] where `offset` is the
     FILE-ABSOLUTE position of that clip's 30-byte mini-header.
+
+    `block_count` (bytes 27-28) is the sample count >> 8, and `rate_flag` (bytes 25-26) is a
+    zero byte glued to the sample count's low byte -- neither is a field of its own. Both are
+    kept for compatibility; use header() for the sample rate and exact sample count.
     """
     return _clips_impl(path)[1]
 
@@ -662,6 +667,32 @@ def output_names(clip_list):
         taken.add(stem)
         out.append(stem)
     return out
+
+
+ACMP_TAG = b"Interplay ACMP Data"
+VOC_TAG = b"Creative Voice File"
+
+
+def header(data, clip):
+    """Read one clip's mini-header. Returns (kind, rate, samples).
+
+    kind     'acmp', 'voc' (a plain Creative Voice file stored in the container -- DATA.VCC
+             holds four), or 'unknown'
+    rate     u32 at +20, the sample rate in Hz (22050 or 11025); None unless 'acmp'
+    samples  u32 at +26, the decoded sample count, which the game plays exactly; None unless
+             'acmp'
+
+    Layout corrected from count023's reverse engineering of TREKJR.EXE
+    (https://www.reddit.com/user/count023/); see FORMAT.md section 1.
+    """
+    off = clip[1]
+    tag = data[off:off + 19]
+    if tag == VOC_TAG:
+        return "voc", None, None
+    if tag != ACMP_TAG or off + 30 > len(data):
+        return "unknown", None, None
+    rate, samples = struct.unpack_from("<I", data, off + 20)[0], struct.unpack_from("<I", data, off + 26)[0]
+    return "acmp", rate, samples
 
 
 def payload(data, clip):

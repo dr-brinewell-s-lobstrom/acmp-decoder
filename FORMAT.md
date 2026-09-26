@@ -48,11 +48,10 @@ silently lose one. `vcc2wav.py` writes the first as `~RPLAN.wav` and the repeat 
 
 ```
 0   19  "Interplay ACMP Data"
-19  4   0x0056221A   (constant)
-23  2   0x2800       (constant)
-25  2   rate / flags -- see below
-27  2   block count  -- the number of blocks in this clip
-29  1   0x00
+19  1   0x1A
+20  4   sample rate, Hz   -- 22050 or 11025
+24  2   0x0028            (constant in every ACMP clip checked; meaning unknown)
+26  4   sample count      -- decoded samples in this clip; the game plays exactly this many
 ```
 
 The clip's ACMP bitstream is `[offset+30, offset+size)`. Clips are contiguous: one clip's
@@ -61,46 +60,69 @@ The clip's ACMP bitstream is `[offset+30, offset+size)`. Clips are contiguous: o
 **Clip 1 is special:** its mini-header *is* the container header — the `"Interplay ACMP Data"` tag
 at file offset 16 serves both. So clip 1's payload begins at byte 46.
 
-**The `rate/flags` field does not encode the sample rate. Every clip is 22050 Hz.**
+This layout is due to **count023** ([u/count023](https://www.reddit.com/user/count023/)), from their
+own reverse engineering of the game executable. Their extractor runs `TREKJR.EXE`'s own decoder
+under emulation: it hands the decoder the clip from byte 26 onward, the decoder takes the u32
+there as its output length, and its internal remaining-sample counter runs from that value down
+to exactly zero. Earlier versions of this document read the header one byte out of phase — a
+"constant `0x0056221A`" at 19, a "rate/flags" u16 at 25 and a "block count" u16 at 27 — which
+split the rate and the sample count across the wrong boundaries.
 
-This was settled empirically on `FED.VCC` (1,489 clips), which carries far more flag values than
-`COMPUTER.VCC`. The same clips were run through speech recognition at 22050 and at 11025 Hz: at
-22050 they yield clean, coherent dialogue; at 11025, gibberish. Clips with the common value
-`0x0200` were included as controls and behaved identically, so the test could have come out the
-other way — it is not merely "22050 happened to work". All 93 unusual-flag clips in `FED.VCC`
-transcribe to non-empty speech at 22050.
+> ⚠ **Corrected: not every clip is 22050 Hz.** This document previously said so, on the strength
+> of a speech-recognition test over `FED.VCC` dialogue at both candidate rates. That test was
+> sound, but every clip in `FED.VCC` happens to be 22050 Hz. The exceptions are sound effects and
+> backing material, as count023 pointed out:
+>
+> | container | 22050 Hz | 11025 Hz |
+> |---|---|---|
+> | `COMPUTER.VCC` | 245 | 0 |
+> | `FED.VCC` | 1,489 | 0 |
+> | `NOMAN.VCC` | 2,615 | 1 (the first `~RPLAN`) |
+> | `SCOTTY.VCC` | 797 | 0 |
+> | `MADNESS.VCC` | 1,554 | 0 |
+> | `BACKSND.VCC` | 77 | 0 |
+> | `DATA.VCC` | 188 | 222 |
+>
+> Played at the wrong rate, an 11025 Hz clip runs at double speed. The two `~RPLAN` clips are a
+> neat check: at their header rates they last 1.156 s and 1.154 s, a matched pair.
 
-What the field *does* mean is unknown. Observed distribution — the low byte is always `0x00`:
+**What the old fields really were.** The old "block count" (bytes 27–28) is the sample count
+shifted right by 8 — the same datum at 256-sample granularity (`TRIP` in `NOMAN.VCC`: 159,743
+samples, "623 blocks"). The old "rate/flags" (bytes 25–26) is the zero byte at 25 glued to the
+sample count's low byte, which is why its distribution never looked like a flag: the two dominant
+values `0x0200` and `0x8200` are low bytes `0x02` and `0x82`.
 
-| container | clips | `0x0200` | `0x8200` | other values |
-|---|---|---|---|---|
-| `COMPUTER.VCC` | 245 | 119 | 117 | 9 clips, 9 distinct values |
-| `FED.VCC` | 1,489 | 723 | 673 | 93 clips, 70 distinct values |
-| `NOMAN.VCC` | 2,616 | 1,223 | 1,216 | 177 clips, 75 distinct values |
-| `SCOTTY.VCC` | 797 | 315 | 347 | 135 clips, 77 distinct values |
-| `MADNESS.VCC` | 1,554 | 713 | 714 | 127 clips, 60 distinct values |
+**Decoded length vs the sample count.** The payload does not always hold exactly the stated
+number of samples, in either direction:
 
-Two dominant values that differ only in bit 15, plus a long tail of near-singletons, is not the
-shape of a rate or format selector — those cluster on a few values. A decoder can ignore this
-field.
+- **Longer.** On some clips the payload carries exactly **one more block than the count
+  needs** — never more. That block is 256 samples of exact silence (`0x80`), and the game stops
+  at the count before reaching it. It never occurs when the count's low byte is `0x02`:
 
-**The field does correlate with one thing: a trailing silent block.** On some clips, decoding to
-the end of the payload yields exactly **one more block than the header's block count** — never
-more, never fewer. That extra block is 256 samples of exact silence (`0x80`). It never occurs on
-`0x0200` clips, in any container checked:
+  | container | low byte `0x02` | low byte `0x82` | other low bytes |
+  |---|---|---|---|
+  | `FED.VCC` | 0 / 723 | 109 / 673 (16%) | 35 / 93 (38%) |
+  | `NOMAN.VCC` | 0 / 1,223 | 225 / 1,216 (19%) | 83 / 177 (47%) |
+  | `SCOTTY.VCC` | 0 / 315 | 70 / 347 (20%) | 87 / 135 (64%) |
+  | `MADNESS.VCC` | 0 / 713 | 169 / 714 (24%) | 67 / 127 (53%) |
 
-| container | `0x0200` | `0x8200` | other values |
-|---|---|---|---|
-| `FED.VCC` | 0 / 723 | 109 / 673 (16%) | 35 / 93 (38%) |
-| `NOMAN.VCC` | 0 / 1,223 | 225 / 1,216 (19%) | 83 / 177 (47%) |
-| `SCOTTY.VCC` | 0 / 315 | 70 / 347 (20%) | 87 / 135 (64%) |
-| `MADNESS.VCC` | 0 / 713 | 169 / 714 (24%) | 67 / 127 (53%) |
+  Round-trip verification covers the extra block, so `--verify` block totals exceed the header
+  sum by that amount.
+- **Shorter — open.** On a sample of 42 `NOMAN.VCC` clips, `acmp`'s decode came up **2 samples
+  short** of the count on every clip with low byte `0x02` (20 clips), and **130 short** on every
+  clip with `0x82` (16). The block bitstreams of those clips round-trip exactly, so the samples
+  that *are* recovered are right. What is not established is where the missing 2 or 130 come
+  from — the game's reconstruction of quiet blocks (§7) is the leading suspect, since that step is
+  not covered by the round-trip.
 
-So the field appears to relate to how a clip was *terminated*, not how it is *played*.
+`vcc2wav.py` writes each clip at its header rate and trims a longer decode to the sample count,
+as the game does. A shorter decode is written as is.
 
-For decoders: reading until the payload is exhausted (as `acmp` does) and trusting the header
-count both produce correct audio; the difference is 11.6 ms of silence. Round-trip verification
-covers the extra block, so `--verify` block totals exceed the header sum by that amount.
+**Not every entry is ACMP.** `DATA.VCC` holds four plain **Creative Voice** files (`.VOC`
+v1.10, tag `"Creative Voice File"` — also 19 bytes, which is why they pass a length check):
+`N5DOGE`, `N6SCMB`, `SE6GUYEA` and `TRPLAN`. Check the tag before decoding. `vcc2wav.py` copies
+these out unchanged as `.voc`; any VOC-capable player or FFmpeg reads them. count023's extractor
+handles the same case.
 
 ---
 
@@ -314,6 +336,14 @@ y[2i+1] = 128 + sum_m coef[m] * ((x[i-m] - 128) + (x[i+1+m] - 128))
 ⚠ **The kernel sums to roughly 0.5 per side, so it must be applied to DC-centred samples with the
 128 bias restored afterwards.** Filtering raw unsigned values instead drags every synthesised
 sample toward 64 and produces a violent sawtooth over otherwise-correct audio.
+
+⚠ **This section is the one part of the decoder that is inferred, not verified.** The round-trip
+(§8) proves the 128 decimated samples of a quiet block; it cannot prove the midpoints, because
+the encoder discards them. The kernel above is the one the *encoder* uses to decimate, and using
+it to interpolate is a reasonable reconstruction, but the game's player may do something else —
+a different filter, sample doubling, or filtering across block boundaries where `acmp` clamps at
+the block edge. The authority here is the game's own decoder in `TREKJR.EXE`, which count023's
+extractor runs under emulation; a sample-for-sample comparison against it has not been done yet.
 
 ---
 

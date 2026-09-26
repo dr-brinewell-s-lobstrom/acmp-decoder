@@ -18,7 +18,8 @@ python vcc2wav.py COMPUTER.VCC --clip 082 -o out/
 python vcc2wav.py COMPUTER.VCC --verify        # verify every block, write nothing
 ```
 
-Output is 8-bit unsigned PCM mono WAV at 22050 Hz.
+Output is 8-bit unsigned PCM mono WAV at each clip's own sample rate (22050 or 11025 Hz),
+trimmed to the sample count in the clip header.
 
 As a library:
 
@@ -29,8 +30,11 @@ data  = open("COMPUTER.VCC", "rb").read()
 clips = acmp.clips("COMPUTER.VCC")             # [(name, offset, size, blocks, rate_flag), ...]
 
 for clip in clips:
-    samples = acmp.decode_clip(acmp.payload(data, clip))
-    acmp.write_wav("%s.wav" % clip[0], samples, 22050)
+    kind, rate, count = acmp.header(data, clip)
+    if kind != "acmp":
+        continue                                   # e.g. a plain Creative Voice file
+    samples = acmp.decode_clip(acmp.payload(data, clip))[:count]
+    acmp.write_wav("%s.wav" % clip[0], samples, rate)
 ```
 
 ## What "verified" means here
@@ -69,6 +73,14 @@ decoder round-trip          126/126 cases exact
 That matters because this codec has several traps where a wrong implementation still produces
 smooth, plausible, speech-like audio. Statistics and listening tests both passed for
 implementations that were badly wrong. See FORMAT.md §8.
+
+**What the round-trip does not cover.** "Byte-exact" is a claim about the bitstream: every block
+and every sample it carries. It does not extend to the clip header, which earlier versions of
+this decoder misread (corrected with thanks to count023, below), or to the interpolation of
+"quiet" blocks. Those are coded at half rate, and the in-between samples are rebuilt with the
+encoder's own decimation filter, a reconstruction the round-trip cannot check (FORMAT.md §7).
+Decoded lengths also still come up 2 or 130 samples short of the header count on many clips
+(FORMAT.md §1). Both are open until the output is compared against the game's own decoder.
 
 ## Why this was hard
 
@@ -113,9 +125,11 @@ python verify/test_decoder.py --exe /path/to/MAKEVCC.EXE
 - Decoding is **exact** where `att == 0` and **exact to the encoder's own reconstruction**
   otherwise — ACMP is lossy for `att > 0` by design, so the original samples are not recoverable
   even in principle.
-- Every clip decodes at **22050 Hz**. The per-clip `rate/flags` field turned out *not* to be a
-  sample rate — tested by speech recognition at both candidate rates, with controls (FORMAT.md,
-  container section). Its actual meaning is unknown, and decoding does not depend on it.
+- Clips are **22050 or 11025 Hz**, read from each clip's header. Dialogue is 22050; some sound
+  effects and backing clips are 11025 (one in `NOMAN.VCC`, 222 in `DATA.VCC`). An earlier
+  version wrote every clip at 22050 Hz, which played the 11025 Hz clips at double speed.
+- A container entry can be a plain **Creative Voice** `.VOC` file instead of ACMP (four in
+  `DATA.VCC`). `vcc2wav.py` copies these out unchanged.
 - Only `.VCC` is implemented. Interplay's `.SND` banks (e.g. *Birth of the Federation*) appear to
   be the same codec family in a different container and are untested here.
 
@@ -130,6 +144,14 @@ continuing to infer the format by reading.
 No game audio is included in this repository.
 
 ## Credits
+
+**count023** ([u/count023](https://www.reddit.com/user/count023/)) found that the clip
+mini-header was being read one byte out of phase. From their own reverse engineering of the game
+executable, they identified the u32 sample rate at byte 20 and the u32 sample count at byte 26. That
+exposed the 11025 Hz clips this decoder had been writing at double speed. Their extractor, which
+runs `TREKJR.EXE`'s own decoder under emulation, also showed that the game plays exactly the
+header's sample count and that a VCC entry can be a plain Creative Voice file. FORMAT.md §1 is
+now their layout.
 
 [codemap](https://github.com/kachowtowmater/codemap) broke the static-analysis deadlock. Its `ir`
 action lifts a single function to typed IR with a structured AST, which made the encoder's
